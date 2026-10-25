@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+:root {
+  --background: #FAF7F2;
+  --foreground: #182620;
+  --card: #FFFFFF;
+  --card-foreground: #182620;
+  --popover: #FFFFFF;
+  --popover-foreground: #182620;
+  --primary: #2D5A43;
+  --primary-hover: #224533;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E8F0EB;
+  --secondary-foreground: #1F3E2E;
+  --muted: #F2ECE4;
+  --muted-foreground: #5C6E64;
+  --accent: #C85A32;
+  --accent-hover: #B04923;
+  --accent-foreground: #FFFFFF;
+  --accent-subtle: #FDF1EB;
+  --accent-subtle-foreground: #943916;
+  --destructive: #B91C1C;
+  --destructive-foreground: #FFFFFF;
+  --border: #E5DDD3;
+  --border-strong: #D4C6B6;
+  --input: #E5DDD3;
+  --ring: #2D5A43;
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-subtle-foreground: var(--accent-subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  min-height: 100vh;
+}
+
+/* Custom focus rings for WCAG 2.2 AA */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Custom print stylesheet for Event Plan PDF export */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-card {
+    border: 1px solid #d1d5db !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+  }
+}

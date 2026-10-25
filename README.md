@@ -104,7 +104,7 @@ graph TD
 
 ### 1. Clone & Install
 ```bash
-git clone <repository-url>
+git clone https://github.com/Deepcode2021/Gatherly-AI
 cd gatherly-ai
 npm install
 ```

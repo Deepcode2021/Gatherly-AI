@@ -154,20 +154,8 @@ npm run build
 
 ---
 
-## 8. Deployment Instructions (Vercel)
 
-Gatherly AI is built for frictionless deployment to Vercel:
-
-1. Push your repository to GitHub.
-2. In the [Vercel Dashboard](https://vercel.com/new), select **Import Project** and link your repository.
-3. In **Environment Variables**, add:
-   - `GEMINI_API_KEY`: Your Google Gemini API key.
-   - `GEMINI_MODEL`: `gemini-3.5-flash-lite` (or your preferred model).
-4. Deploy. Vercel automatically runs `npm run build` and serves static routes at the edge with serverless route handlers for `/api/ai/plan`.
-
----
-
-## 9. Limitations and Future Scope
+## 8. Limitations and Future Scope
 
 - **Process-Local Rate Limiting**: The current `/api/ai/plan` endpoint uses in-memory IP rate limiting (10 requests/minute). In globally distributed multi-region serverless deployments, this can be upgraded to Upstash Redis.
 - **Collaborative Real-Time Sync**: Version 1 stores plans locally in `localStorage` for privacy and offline reliability. Future versions will support optional peer-to-peer cloud sync via WebSockets / CRDTs.

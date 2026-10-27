@@ -4,8 +4,8 @@ AI-powered event planning for weddings, birthdays, college fests, cultural festi
 
 **Built for:** PromptWars Virtual — Challenge 5: Celebration & Event Planner
 
-> **Live demo:** Add your deployed Vercel URL here  
-> **GitHub repository:** https://github.com/Deepcode2021/Gatherly-AI
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Play_Now-success?style=for-the-badge)](https://gatherlyai.vercel.app/)
+[![Demo Video](https://img.shields.io/badge/Demo_Video-Watch_Walkthrough-red?style=for-the-badge)](https://youtube.com/your-video-link)
 
 Gatherly AI turns an event brief into an actionable planning workspace with a budget, checklist, timeline, vendor tracker, curated ideas, and an event-readiness score. It is designed to remain useful even when AI is unavailable, with offline planning and browser-local storage.
 

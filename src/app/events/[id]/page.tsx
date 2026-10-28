@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, use } from 'react';
+import React, { useState, use, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -69,12 +69,61 @@ export default function EventWorkspacePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const router = useRouter();
   const resolvedParams = use(params);
   const eventId = resolvedParams.id;
 
   // Reactively retrieve the event from storage via custom store
   const storedEvent = useEvent(eventId);
+
+  // If this is the demo celebration route and it's not yet in storage, provide an easy 1-click initialize
+  if (!storedEvent) {
+    if (eventId === 'demo-bhopal-30th-birthday') {
+      return (
+        <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-[#E8F0EB] text-[#2D5A43] mx-auto flex items-center justify-center">
+            <Sparkles className="w-6 h-6" />
+          </div>
+          <h2 className="text-xl font-bold text-[#182620]">Load Bhopal Demonstration Celebration</h2>
+          <p className="text-sm text-[#5C6E64] max-w-md mx-auto">
+            Ready to explore our 60-guest, ₹40,000 rooftop sunset birthday celebration plan?
+          </p>
+          <Button
+            variant="accent"
+            size="md"
+            onClick={() => {
+              loadDemoEventIntoStorage();
+            }}
+          >
+            Initialize & Open Demo Workspace
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
+        <h2 className="text-xl font-bold text-[#182620]">Event Not Found</h2>
+        <p className="text-sm text-[#5C6E64]">
+          The requested event could not be found in your local storage.
+        </p>
+        <Link href="/dashboard">
+          <Button variant="primary" size="md">
+            Back to Dashboard
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  return <EventWorkspace event={storedEvent} />;
+}
+
+/**
+ * Rendered only once the event exists, so every hook below runs unconditionally.
+ * Receiving `event` as a prop keeps hook order stable across the demo/not-found states.
+ */
+function EventWorkspace({ event }: { event: EventPlan }) {
+  const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [showReadinessBreakdown, setShowReadinessBreakdown] = useState(false);
@@ -124,53 +173,14 @@ export default function EventWorkspacePage({
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // If this is the demo celebration route and it's not yet in storage, provide an easy 1-click initialize
-  if (!storedEvent) {
-    if (eventId === 'demo-bhopal-30th-birthday') {
-      return (
-        <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
-          <div className="w-12 h-12 rounded-2xl bg-[#E8F0EB] text-[#2D5A43] mx-auto flex items-center justify-center">
-            <Sparkles className="w-6 h-6" />
-          </div>
-          <h2 className="text-xl font-bold text-[#182620]">Load Bhopal Demonstration Celebration</h2>
-          <p className="text-sm text-[#5C6E64] max-w-md mx-auto">
-            Ready to explore our 60-guest, ₹40,000 rooftop sunset birthday celebration plan?
-          </p>
-          <Button
-            variant="accent"
-            size="md"
-            onClick={() => {
-              loadDemoEventIntoStorage();
-            }}
-          >
-            Initialize & Open Demo Workspace
-          </Button>
-        </div>
-      );
-    }
-
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
-        <h2 className="text-xl font-bold text-[#182620]">Event Not Found</h2>
-        <p className="text-sm text-[#5C6E64]">
-          The requested event could not be found in your local storage.
-        </p>
-        <Link href="/dashboard">
-          <Button variant="primary" size="md">
-            Back to Dashboard
-          </Button>
-        </Link>
-      </div>
-    );
-  }
-
-  const event = storedEvent;
-
-  // Derive dynamic state deterministically
-  const budgetSummary = calculateBudgetSummary(event.totalBudget, event.budgetItems);
-  const taskProgress = getTaskProgress(event.tasks);
-  const readiness = calculateEventReadiness(event);
-  const countdown = getCountdownLabel(event.eventDate);
+  // Derive dynamic state deterministically — memoised to avoid re-running on unrelated state changes
+  const budgetSummary = useMemo(
+    () => calculateBudgetSummary(event.totalBudget, event.budgetItems),
+    [event.totalBudget, event.budgetItems]
+  );
+  const taskProgress = useMemo(() => getTaskProgress(event.tasks), [event.tasks]);
+  const readiness = useMemo(() => calculateEventReadiness(event), [event]);
+  const countdown = useMemo(() => getCountdownLabel(event.eventDate), [event.eventDate]);
 
   // Persistence Helper
   const persistEventChanges = (updated: EventPlan) => {
@@ -467,26 +477,35 @@ export default function EventWorkspacePage({
     router.push('/dashboard');
   };
 
-  // Filter tasks based on selected filters
-  const filteredTasks = event.tasks.filter((t) => {
-    if (taskCategoryFilter !== 'all' && t.category !== taskCategoryFilter) {
-      return false;
-    }
-    if (taskStatusFilter === 'completed' && !t.isCompleted) return false;
-    if (taskStatusFilter === 'pending' && t.isCompleted) return false;
-    if (taskStatusFilter === 'overdue' && !isTaskOverdue(t)) return false;
-    return true;
-  });
+  // Filter tasks based on selected filters — memoised to avoid re-running on every render
+  const filteredTasks = useMemo(
+    () =>
+      event.tasks.filter((t) => {
+        if (taskCategoryFilter !== 'all' && t.category !== taskCategoryFilter) return false;
+        if (taskStatusFilter === 'completed' && !t.isCompleted) return false;
+        if (taskStatusFilter === 'pending' && t.isCompleted) return false;
+        if (taskStatusFilter === 'overdue' && !isTaskOverdue(t)) return false;
+        return true;
+      }),
+    [event.tasks, taskCategoryFilter, taskStatusFilter]
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-6">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl bg-[#182620] text-white text-xs font-semibold shadow-xl flex items-center gap-2 animate-in slide-in-from-bottom-2 duration-150">
-          <Check className="w-4 h-4 text-[#C85A32]" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
+      {/* Toast Notification — role=status so screen readers announce it */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="fixed bottom-6 right-6 z-50"
+      >
+        {toastMessage && (
+          <div className="px-4 py-2.5 rounded-xl bg-[#182620] text-white text-xs font-semibold shadow-xl flex items-center gap-2 animate-in slide-in-from-bottom-2 duration-150">
+            <Check className="w-4 h-4 text-[#C85A32]" />
+            <span>{toastMessage}</span>
+          </div>
+        )}
+      </div>
 
       {/* Top Workspace Navigation Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E5DDD3] pb-4 no-print">
@@ -568,7 +587,11 @@ export default function EventWorkspacePage({
               <button
                 onClick={() => setShowReadinessBreakdown(!showReadinessBreakdown)}
                 className="text-[#2D5A43] hover:underline cursor-pointer"
-                title="Toggle score factors"
+                aria-label={
+                  showReadinessBreakdown ? 'Hide readiness score breakdown' : 'Show readiness score breakdown'
+                }
+                aria-expanded={showReadinessBreakdown}
+                aria-controls="readiness-breakdown"
               >
                 {showReadinessBreakdown ? (
                   <ChevronUp className="w-3.5 h-3.5" />
@@ -591,7 +614,10 @@ export default function EventWorkspacePage({
 
         {/* Expandable Mathematical Readiness Breakdown */}
         {showReadinessBreakdown && (
-          <div className="pt-4 border-t border-[#E5DDD3] space-y-3 animate-in fade-in duration-150">
+          <div
+            id="readiness-breakdown"
+            className="pt-4 border-t border-[#E5DDD3] space-y-3 animate-in fade-in duration-150"
+          >
             <h4 className="text-xs font-bold uppercase tracking-wider text-[#182620]">
               Score Calculation Breakdown (Deterministic Multi-Factor Formula)
             </h4>
@@ -658,7 +684,11 @@ export default function EventWorkspacePage({
       </Card>
 
       {/* Tabs Navigation */}
-      <div className="flex border-b border-[#E5DDD3] gap-2 overflow-x-auto no-print">
+      <div
+        role="tablist"
+        aria-label="Event workspace sections"
+        className="flex border-b border-[#E5DDD3] gap-2 overflow-x-auto no-print"
+      >
         {[
           { id: 'overview', label: 'Overview', icon: FileText },
           { id: 'budget', label: 'Budget Engine', icon: Wallet },
@@ -671,6 +701,8 @@ export default function EventWorkspacePage({
           return (
             <button
               key={tab.id}
+              role="tab"
+              aria-selected={isActive}
               onClick={() => setActiveTab(tab.id as TabType)}
               className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
                 isActive
@@ -829,10 +861,13 @@ export default function EventWorkspacePage({
 
               <div className="space-y-2">
                 {event.tasks.slice(0, 4).map((task) => (
-                  <div
+                  <button
                     key={task.id}
+                    type="button"
                     onClick={() => handleToggleTask(task.id)}
-                    className="p-3 rounded-xl border border-[#E5DDD3] hover:border-[#2D5A43] bg-[#FAF7F2] flex items-start gap-3 transition-colors cursor-pointer"
+                    aria-label={`Mark "${task.title}" as ${task.isCompleted ? 'incomplete' : 'complete'}`}
+                    aria-pressed={task.isCompleted}
+                    className="w-full text-left p-3 rounded-xl border border-[#E5DDD3] hover:border-[#2D5A43] bg-[#FAF7F2] flex items-start gap-3 transition-colors cursor-pointer"
                   >
                     <div className="mt-0.5">
                       {task.isCompleted ? (
@@ -853,7 +888,7 @@ export default function EventWorkspacePage({
                         Due {formatDate(task.dueDate)} ({getCountdownLabel(task.dueDate).text})
                       </p>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
 
@@ -1077,6 +1112,7 @@ export default function EventWorkspacePage({
                           type="number"
                           step={100}
                           value={item.estimatedCost}
+                          aria-label={`Estimated cost for ${item.description}`}
                           onChange={(e) =>
                             handleUpdateCost(item.id, 'estimatedCost', parseInt(e.target.value, 10))
                           }
@@ -1089,6 +1125,7 @@ export default function EventWorkspacePage({
                           step={100}
                           placeholder={item.estimatedCost.toString()}
                           value={item.actualCost ?? ''}
+                          aria-label={`Actual cost for ${item.description}`}
                           onChange={(e) => {
                             const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
                             handleUpdateCost(item.id, 'actualCost', val);
@@ -1101,6 +1138,7 @@ export default function EventWorkspacePage({
                           type="number"
                           step={100}
                           value={item.paidAmount ?? 0}
+                          aria-label={`Paid amount for ${item.description}`}
                           onChange={(e) =>
                             handleUpdateCost(item.id, 'paidAmount', parseInt(e.target.value, 10))
                           }
@@ -1166,8 +1204,11 @@ export default function EventWorkspacePage({
             {/* Filters Row */}
             <div className="flex flex-wrap items-center gap-3 pt-2 text-xs">
               <div className="flex items-center gap-1.5">
-                <span className="text-[#5C6E64] font-medium">Status:</span>
+                <label htmlFor="task-status-filter" className="text-[#5C6E64] font-medium">
+                  Status:
+                </label>
                 <select
+                  id="task-status-filter"
                   value={taskStatusFilter}
                   onChange={(e) => setTaskStatusFilter(e.target.value)}
                   className="px-2.5 py-1 rounded-lg border border-[#D4C6B6] bg-white text-[#182620]"
@@ -1180,8 +1221,11 @@ export default function EventWorkspacePage({
               </div>
 
               <div className="flex items-center gap-1.5">
-                <span className="text-[#5C6E64] font-medium">Category:</span>
+                <label htmlFor="task-category-filter" className="text-[#5C6E64] font-medium">
+                  Category:
+                </label>
                 <select
+                  id="task-category-filter"
                   value={taskCategoryFilter}
                   onChange={(e) => setTaskCategoryFilter(e.target.value)}
                   className="px-2.5 py-1 rounded-lg border border-[#D4C6B6] bg-white text-[#182620]"
@@ -1350,6 +1394,7 @@ export default function EventWorkspacePage({
                     {/* Status Dropdown */}
                     <select
                       value={vendor.status}
+                      aria-label={`Booking status for ${vendor.service}`}
                       onChange={(e) =>
                         handleUpdateVendorStatus(vendor.id, e.target.value as VendorStatus)
                       }
@@ -1366,10 +1411,14 @@ export default function EventWorkspacePage({
                   {/* Vendor Name & Contact Inputs */}
                   <div className="space-y-2 pt-1 text-xs">
                     <div>
-                      <label className="text-[10px] font-bold text-[#5C6E64] uppercase block">
+                      <label
+                        htmlFor={`vendor-name-${vendor.id}`}
+                        className="text-[10px] font-bold text-[#5C6E64] uppercase block"
+                      >
                         Vendor Provider Name
                       </label>
                       <input
+                        id={`vendor-name-${vendor.id}`}
                         type="text"
                         placeholder="e.g. Royal Caterers / Lakeview Terrace"
                         value={vendor.vendorName || ''}
@@ -1381,10 +1430,14 @@ export default function EventWorkspacePage({
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold text-[#5C6E64] uppercase block">
+                      <label
+                        htmlFor={`vendor-notes-${vendor.id}`}
+                        className="text-[10px] font-bold text-[#5C6E64] uppercase block"
+                      >
                         Contact & Quotation Notes
                       </label>
                       <textarea
+                        id={`vendor-notes-${vendor.id}`}
                         rows={2}
                         placeholder="Phone, agreed inclusions, payment terms..."
                         value={vendor.quotationNotes || ''}
@@ -1568,8 +1621,9 @@ export default function EventWorkspacePage({
       >
         <div className="space-y-3 text-xs">
           <div>
-            <label className="font-semibold block mb-1">Item Description</label>
+            <label htmlFor="expense-description" className="font-semibold block mb-1">Item Description</label>
             <input
+              id="expense-description"
               type="text"
               placeholder="e.g. Welcome Drinks Bar, Sound operator tip"
               value={newExpense.description}
@@ -1582,8 +1636,9 @@ export default function EventWorkspacePage({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="font-semibold block mb-1">Category</label>
+              <label htmlFor="expense-category" className="font-semibold block mb-1">Category</label>
               <select
+                id="expense-category"
                 value={newExpense.category}
                 onChange={(e) =>
                   setNewExpense({
@@ -1602,8 +1657,9 @@ export default function EventWorkspacePage({
             </div>
 
             <div>
-              <label className="font-semibold block mb-1">Estimated Cost in INR (₹)</label>
+              <label htmlFor="expense-estimated-cost" className="font-semibold block mb-1">Estimated Cost in INR (₹)</label>
               <input
+                id="expense-estimated-cost"
                 type="number"
                 step={100}
                 value={newExpense.estimatedCost}
@@ -1619,8 +1675,9 @@ export default function EventWorkspacePage({
           </div>
 
           <div>
-            <label className="font-semibold block mb-1">Basis / Assumption (Optional)</label>
+            <label htmlFor="expense-basis" className="font-semibold block mb-1">Basis / Assumption (Optional)</label>
             <input
+              id="expense-basis"
               type="text"
               placeholder="e.g. ₹500/guest or fixed flat package"
               value={newExpense.basis}
@@ -1641,8 +1698,9 @@ export default function EventWorkspacePage({
       >
         <div className="space-y-3 text-xs">
           <div>
-            <label className="font-semibold block mb-1">Task Title</label>
+            <label htmlFor="task-title" className="font-semibold block mb-1">Task Title</label>
             <input
+              id="task-title"
               type="text"
               placeholder="e.g. Order custom milestone bento cake"
               value={newTask.title}
@@ -1653,8 +1711,9 @@ export default function EventWorkspacePage({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="font-semibold block mb-1">Priority</label>
+              <label htmlFor="task-priority" className="font-semibold block mb-1">Priority</label>
               <select
+                id="task-priority"
                 value={newTask.priority}
                 onChange={(e) =>
                   setNewTask({ ...newTask, priority: e.target.value as TaskPriority })
@@ -1668,8 +1727,9 @@ export default function EventWorkspacePage({
             </div>
 
             <div>
-              <label className="font-semibold block mb-1">Due Date</label>
+              <label htmlFor="task-due-date" className="font-semibold block mb-1">Due Date</label>
               <input
+                id="task-due-date"
                 type="date"
                 value={newTask.dueDate}
                 onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
@@ -1679,8 +1739,9 @@ export default function EventWorkspacePage({
           </div>
 
           <div>
-            <label className="font-semibold block mb-1">Description / Notes</label>
+            <label htmlFor="task-description" className="font-semibold block mb-1">Description / Notes</label>
             <textarea
+              id="task-description"
               rows={2}
               placeholder="Actionable details and checklist reminders..."
               value={newTask.description}
@@ -1701,8 +1762,9 @@ export default function EventWorkspacePage({
       >
         <div className="space-y-3 text-xs">
           <div>
-            <label className="font-semibold block mb-1">Service Required</label>
+            <label htmlFor="vendor-service" className="font-semibold block mb-1">Service Required</label>
             <input
+              id="vendor-service"
               type="text"
               placeholder="e.g. Acoustic Duo Guitarist, Jute Decorator"
               value={newVendor.service}
@@ -1713,8 +1775,9 @@ export default function EventWorkspacePage({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="font-semibold block mb-1">Vendor Provider Name (Optional)</label>
+              <label htmlFor="vendor-provider-name" className="font-semibold block mb-1">Vendor Provider Name (Optional)</label>
               <input
+                id="vendor-provider-name"
                 type="text"
                 placeholder="Business or contact name"
                 value={newVendor.vendorName}
@@ -1724,8 +1787,9 @@ export default function EventWorkspacePage({
             </div>
 
             <div>
-              <label className="font-semibold block mb-1">Target Budget in INR (₹)</label>
+              <label htmlFor="vendor-target-budget" className="font-semibold block mb-1">Target Budget in INR (₹)</label>
               <input
+                id="vendor-target-budget"
                 type="number"
                 step={500}
                 value={newVendor.targetBudget}

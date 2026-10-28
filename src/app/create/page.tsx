@@ -130,11 +130,25 @@ export default function CreateEventPage() {
 
   const formValues = watch();
 
+  // Applies a preset field-by-field so every value keeps its exact field type —
+  // no dynamic-key cast and no @ts-expect-error suppression is required.
   const handleApplyPreset = (presetData: Partial<CreateEventFormData>) => {
-    Object.entries(presetData).forEach(([key, val]) => {
-      // @ts-expect-error key casting
-      setValue(key, val);
-    });
+    if (presetData.title !== undefined) setValue('title', presetData.title);
+    if (presetData.eventType !== undefined) setValue('eventType', presetData.eventType);
+    if (presetData.eventDate !== undefined) setValue('eventDate', presetData.eventDate);
+    if (presetData.city !== undefined) setValue('city', presetData.city);
+    if (presetData.guestCount !== undefined) setValue('guestCount', presetData.guestCount);
+    if (presetData.totalBudget !== undefined) setValue('totalBudget', presetData.totalBudget);
+    if (presetData.venueType !== undefined) setValue('venueType', presetData.venueType);
+    if (presetData.theme !== undefined) setValue('theme', presetData.theme);
+    if (presetData.dietary !== undefined) setValue('dietary', presetData.dietary);
+    if (presetData.accessibility !== undefined) {
+      setValue('accessibility', presetData.accessibility);
+    }
+    if (presetData.priorities !== undefined) setValue('priorities', presetData.priorities);
+    if (presetData.additionalNotes !== undefined) {
+      setValue('additionalNotes', presetData.additionalNotes);
+    }
   };
 
   const togglePriority = (priority: string) => {
@@ -368,10 +382,11 @@ export default function CreateEventPage() {
 
               {/* Event Title */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#182620]">
+                <label htmlFor="event-title" className="text-xs font-semibold text-[#182620]">
                   Celebration Title <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="event-title"
                   type="text"
                   placeholder="e.g. Aarav's 30th Rooftop Sunset Birthday"
                   {...register('title')}
@@ -385,10 +400,11 @@ export default function CreateEventPage() {
               {/* Event Type & Date */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-[#182620]">
+                  <label htmlFor="event-type" className="text-xs font-semibold text-[#182620]">
                     Event Type <span className="text-red-500">*</span>
                   </label>
                   <select
+                    id="event-type"
                     {...register('eventType')}
                     className="w-full px-4 py-2.5 text-sm rounded-xl border border-[#D4C6B6] focus:border-[#2D5A43] focus:ring-1 focus:ring-[#2D5A43] bg-white text-[#182620]"
                   >
@@ -405,10 +421,11 @@ export default function CreateEventPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-[#182620]">
+                  <label htmlFor="event-date" className="text-xs font-semibold text-[#182620]">
                     Event Date <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="event-date"
                     type="date"
                     {...register('eventDate')}
                     className="w-full px-4 py-2.5 text-sm rounded-xl border border-[#D4C6B6] focus:border-[#2D5A43] focus:ring-1 focus:ring-[#2D5A43] bg-white text-[#182620]"
@@ -421,12 +438,13 @@ export default function CreateEventPage() {
 
               {/* City / Location */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#182620]">
+                <label htmlFor="event-city" className="text-xs font-semibold text-[#182620]">
                   City or Location <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <MapPin className="w-4 h-4 absolute left-3.5 top-3 text-[#5C6E64]" />
                   <input
+                    id="event-city"
                     type="text"
                     placeholder="e.g. Bhopal, Jaipur, Bengaluru, Mumbai"
                     {...register('city')}
@@ -451,12 +469,13 @@ export default function CreateEventPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Guest Count */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-[#182620]">
+                  <label htmlFor="guest-count" className="text-xs font-semibold text-[#182620]">
                     Expected Guest Count <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
                     <Users className="w-4 h-4 absolute left-3.5 top-3 text-[#5C6E64]" />
                     <input
+                      id="guest-count"
                       type="number"
                       min={1}
                       max={10000}
@@ -471,10 +490,11 @@ export default function CreateEventPage() {
 
                 {/* Total Budget in INR */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-[#182620]">
+                  <label htmlFor="total-budget" className="text-xs font-semibold text-[#182620]">
                     Total Target Budget in INR (₹) <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="total-budget"
                     type="number"
                     step={1000}
                     min={5000}
@@ -497,14 +517,19 @@ export default function CreateEventPage() {
 
               {/* Venue Type */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#182620]">
+                <span id="venue-style-label" className="text-xs font-semibold text-[#182620]">
                   Venue Style <span className="text-red-500">*</span>
-                </label>
-                <div className="grid grid-cols-3 gap-3">
+                </span>
+                <div
+                  role="group"
+                  aria-labelledby="venue-style-label"
+                  className="grid grid-cols-3 gap-3"
+                >
                   {(['indoor', 'outdoor', 'mixed'] as VenueType[]).map((type) => (
                     <button
                       key={type}
                       type="button"
+                      aria-pressed={formValues.venueType === type}
                       onClick={() => setValue('venueType', type)}
                       className={`py-3 px-2 rounded-xl text-xs font-bold capitalize border transition-all text-center cursor-pointer ${
                         formValues.venueType === type
@@ -520,10 +545,11 @@ export default function CreateEventPage() {
 
               {/* Preferred Theme */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#182620]">
+                <label htmlFor="event-theme" className="text-xs font-semibold text-[#182620]">
                   Preferred Theme or Atmosphere (Optional)
                 </label>
                 <input
+                  id="event-theme"
                   type="text"
                   placeholder="e.g. Boho Sunset, Royal Heritage Marigold, Minimalist Pastel"
                   {...register('theme')}
@@ -543,10 +569,11 @@ export default function CreateEventPage() {
 
               {/* Dietary Requirements */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#182620]">
+                <label htmlFor="dietary-prefs" className="text-xs font-semibold text-[#182620]">
                   Dietary & Catering Preferences
                 </label>
                 <input
+                  id="dietary-prefs"
                   type="text"
                   placeholder="e.g. Pure Vegetarian, Jain options, Live Chaat counters, Mixed"
                   {...register('dietary')}
@@ -556,10 +583,11 @@ export default function CreateEventPage() {
 
               {/* Accessibility */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#182620]">
+                <label htmlFor="accessibility-reqs" className="text-xs font-semibold text-[#182620]">
                   Accessibility Requirements
                 </label>
                 <input
+                  id="accessibility-reqs"
                   type="text"
                   placeholder="e.g. Wheelchair access, elevator to terrace, seating for elders"
                   {...register('accessibility')}
@@ -570,9 +598,9 @@ export default function CreateEventPage() {
               {/* Key Priorities Chips */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-[#182620]">
+                  <span id="key-priorities-label" className="text-xs font-semibold text-[#182620]">
                     Select Key Priorities (Pick up to 6):
-                  </label>
+                  </span>
                   <span
                     className={`text-xs font-semibold tabular-nums ${
                       (formValues.priorities?.length ?? 0) >= 6
@@ -584,7 +612,11 @@ export default function CreateEventPage() {
                     {formValues.priorities?.length ?? 0} of 6 selected
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div
+                  role="group"
+                  aria-labelledby="key-priorities-label"
+                  className="flex flex-wrap gap-2"
+                >
                   {/* Render POPULAR_PRIORITIES chips plus any custom preset values not in the list */}
                   {[
                     ...POPULAR_PRIORITIES,
@@ -627,10 +659,11 @@ export default function CreateEventPage() {
 
               {/* Additional Notes */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#182620]">
+                <label htmlFor="additional-notes" className="text-xs font-semibold text-[#182620]">
                   Additional Instructions / Context
                 </label>
                 <textarea
+                  id="additional-notes"
                   rows={3}
                   placeholder="e.g. Family celebration with college friends. Keep protocol casual. Lake breeze expected."
                   {...register('additionalNotes')}

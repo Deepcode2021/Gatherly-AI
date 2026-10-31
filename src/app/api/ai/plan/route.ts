@@ -1,17 +1,13 @@
-// Gatherly AI - Server-side Gemini AI Planning Route Handler
 import { NextRequest, NextResponse } from 'next/server';
 import { aiPlanRequestSchema } from '@/types/schemas';
 import { generateEventPlanWithGemini } from '@/lib/gemini';
 
 export const dynamic = 'force-dynamic';
 
-// Process-local rate limiter state
-// NOTE: Process-local in-memory rate limiting is effective per container/process instance.
-// In distributed/serverless multi-region deployments, a shared Redis store (like Upstash)
-// should be utilized for globally synchronized rate limiting.
 const requestCounts = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const MAX_REQUESTS_PER_WINDOW = 10; // 10 plans per minute per IP
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_REQUESTS_PER_WINDOW = 10;
+const GENERATION_TIMEOUT_MS = 40000;
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -30,9 +26,23 @@ function isRateLimited(ip: string): boolean {
   return false;
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`AI generation timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
-    // 1. IP Rate Limiting
     const clientIp =
       req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
       req.headers.get('x-real-ip') ||
@@ -48,7 +58,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Body Size Check (Reject payloads larger than 50KB)
     const contentLength = req.headers.get('content-length');
     if (contentLength && parseInt(contentLength, 10) > 50000) {
       return NextResponse.json(
@@ -57,7 +66,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Parse JSON safely
     let body: unknown;
     try {
       body = await req.json();
@@ -68,7 +76,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. Validate with Zod
     const validation = aiPlanRequestSchema.safeParse(body);
     if (!validation.success) {
       const issue = validation.error.issues[0];
@@ -82,12 +89,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5. Verify API key availability
     const apiKey = process.env.GEMINI_API_KEY;
-    console.log(
-      '[API /api/ai/plan] Gemini API Key status:',
-      apiKey ? `Configured (length: ${apiKey.length})` : 'MISSING / UNDEFINED'
-    );
     if (!apiKey) {
       return NextResponse.json(
         {
@@ -100,15 +102,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 6. Call Gemini AI with timeout guard (40 seconds max)
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('AI generation timed out after 40 seconds')), 40000)
+    const plan = await withTimeout(
+      generateEventPlanWithGemini(validation.data),
+      GENERATION_TIMEOUT_MS
     );
-
-    const planPromise = generateEventPlanWithGemini(validation.data);
-    const plan = (await Promise.race([planPromise, timeoutPromise])) as Awaited<
-      ReturnType<typeof generateEventPlanWithGemini>
-    >;
 
     return NextResponse.json({
       success: true,
@@ -119,7 +116,6 @@ export async function POST(req: NextRequest) {
     const error = err as Error;
     console.error('API /api/ai/plan error:', error.message);
 
-    // Provide clean, sanitized error messages without exposing server internals or secrets
     if (error.message.includes('timed out')) {
       return NextResponse.json(
         {
@@ -134,7 +130,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: 'INVALID_API_KEY',
-          message: 'The configured GEMINI_API_KEY is invalid. Please check your credentials in Google AI Studio.',
+          message:
+            'The configured GEMINI_API_KEY is invalid. Please check your credentials in Google AI Studio.',
         },
         { status: 401 }
       );
@@ -145,7 +142,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: 'GENERATION_SCHEMA_FAILED',
-          message: 'The AI generated plan did not match the expected structure. Please retry or adjust parameters.',
+          message:
+            'The AI generated plan did not match the expected structure. Please retry or adjust parameters.',
           details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
         },
         { status: 500 }

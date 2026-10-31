@@ -1,6 +1,3 @@
-// Gatherly AI - Versioned Local Storage and Data Access Layer
-// Manages GATHERLY_AI_EVENTS_V1 with schema validation, recovery, and JSON import/export
-
 import { EventPlan } from '@/types/event';
 import { fullEventPlanSchema } from '@/types/schemas';
 import { getDemoEvent } from './demoEvent';
@@ -14,50 +11,61 @@ export interface StorageDataV1 {
   events: EventPlan[];
 }
 
-/**
- * Check if running in browser
- */
+const EMPTY_EVENTS: EventPlan[] = [];
+let cachedRaw: string | null = null;
+let cachedEvents: EventPlan[] = EMPTY_EVENTS;
+let hasCachedSnapshot = false;
+
 function isBrowser(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
-/**
- * Load all stored events safely
- */
-export function loadAllEvents(): EventPlan[] {
-  if (!isBrowser()) return [];
+function createEventId(): string {
+  return `evt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+}
 
+function parseStoredEvents(raw: string): EventPlan[] {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY_V1);
-    if (!raw) return [];
-
-    const parsed = JSON.parse(raw);
-    if (parsed && Array.isArray(parsed.events)) {
-      // Validate individual events, gracefully filtering out unrecoverably corrupt ones
-      const validEvents: EventPlan[] = [];
-      for (const item of parsed.events) {
-        const result = fullEventPlanSchema.safeParse(item);
-        if (result.success) {
-          validEvents.push(result.data as EventPlan);
-        } else {
-          // If slight validation drift, attempt graceful retention if has id & title
-          if (item && item.id && item.title) {
-            validEvents.push(item as EventPlan);
-          }
-        }
-      }
-      return validEvents;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as StorageDataV1).events)) {
+      return EMPTY_EVENTS;
     }
-    return [];
+
+    const validEvents: EventPlan[] = [];
+    for (const item of (parsed as StorageDataV1).events) {
+      const result = fullEventPlanSchema.safeParse(item);
+      if (result.success) {
+        validEvents.push(result.data as EventPlan);
+      } else if (item && item.id && item.title) {
+        validEvents.push(item as EventPlan);
+      }
+    }
+
+    return validEvents;
   } catch (error) {
     console.error('Failed to parse saved events from localStorage:', error);
-    return [];
+    return EMPTY_EVENTS;
   }
 }
 
-/**
- * Save all events into versioned storage
- */
+export function getEventsSnapshot(): EventPlan[] {
+  if (!isBrowser()) return EMPTY_EVENTS;
+
+  const raw = window.localStorage.getItem(STORAGE_KEY_V1);
+  if (hasCachedSnapshot && raw === cachedRaw) {
+    return cachedEvents;
+  }
+
+  hasCachedSnapshot = true;
+  cachedRaw = raw;
+  cachedEvents = raw ? parseStoredEvents(raw) : EMPTY_EVENTS;
+  return cachedEvents;
+}
+
+export function loadAllEvents(): EventPlan[] {
+  return getEventsSnapshot();
+}
+
 export function saveAllEvents(events: EventPlan[]): boolean {
   if (!isBrowser()) return false;
 
@@ -67,7 +75,13 @@ export function saveAllEvents(events: EventPlan[]): boolean {
       updatedAt: new Date().toISOString(),
       events,
     };
-    window.localStorage.setItem(STORAGE_KEY_V1, JSON.stringify(payload));
+    const raw = JSON.stringify(payload);
+    window.localStorage.setItem(STORAGE_KEY_V1, raw);
+
+    cachedRaw = raw;
+    cachedEvents = events;
+    hasCachedSnapshot = true;
+
     window.dispatchEvent(new Event('gatherly-events-updated'));
     return true;
   } catch (error) {
@@ -76,48 +90,36 @@ export function saveAllEvents(events: EventPlan[]): boolean {
   }
 }
 
-/**
- * Get single event by ID
- */
 export function getEventById(id: string): EventPlan | null {
-  const events = loadAllEvents();
-  return events.find((e) => e.id === id) || null;
+  return getEventsSnapshot().find((event) => event.id === id) || null;
 }
 
-/**
- * Save or update a single event plan
- */
 export function saveEvent(event: EventPlan): boolean {
-  const events = loadAllEvents();
-  const existingIdx = events.findIndex((e) => e.id === event.id);
-
+  const events = getEventsSnapshot();
+  const existingIndex = events.findIndex((item) => item.id === event.id);
   const updatedEvent: EventPlan = {
     ...event,
     updatedAt: new Date().toISOString(),
   };
 
-  let newEvents: EventPlan[];
-  if (existingIdx >= 0) {
-    newEvents = [...events];
-    newEvents[existingIdx] = updatedEvent;
+  const nextEvents = [...events];
+  if (existingIndex >= 0) {
+    nextEvents[existingIndex] = updatedEvent;
   } else {
-    newEvents = [updatedEvent, ...events];
+    nextEvents.unshift(updatedEvent);
   }
 
-  const success = saveAllEvents(newEvents);
+  const success = saveAllEvents(nextEvents);
   if (success && isBrowser()) {
     window.localStorage.setItem(ACTIVE_EVENT_KEY, event.id);
   }
   return success;
 }
 
-/**
- * Delete an event by ID
- */
 export function deleteEvent(id: string): boolean {
-  const events = loadAllEvents();
-  const filtered = events.filter((e) => e.id !== id);
+  const filtered = getEventsSnapshot().filter((event) => event.id !== id);
   const success = saveAllEvents(filtered);
+
   if (success && isBrowser()) {
     const active = window.localStorage.getItem(ACTIVE_EVENT_KEY);
     if (active === id) {
@@ -131,27 +133,19 @@ export function deleteEvent(id: string): boolean {
   return success;
 }
 
-/**
- * Load or reset the bundled demo celebration event
- */
 export function loadDemoEventIntoStorage(): EventPlan {
   const demo = getDemoEvent();
   saveEvent(demo);
   return demo;
 }
 
-/**
- * Export a single event as formatted JSON string
- */
 export function exportEventAsJSON(event: EventPlan): string {
   return JSON.stringify(event, null, 2);
 }
 
-/**
- * Trigger browser file download for event backup
- */
 export function downloadEventJSONFile(event: EventPlan): void {
   if (!isBrowser()) return;
+
   const json = exportEventAsJSON(event);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -160,6 +154,7 @@ export function downloadEventJSONFile(event: EventPlan): void {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .slice(0, 40);
+
   anchor.href = url;
   anchor.download = `gatherly-plan-${safeTitle}-${event.eventDate}.json`;
   document.body.appendChild(anchor);
@@ -168,10 +163,6 @@ export function downloadEventJSONFile(event: EventPlan): void {
   URL.revokeObjectURL(url);
 }
 
-/**
- * Validate and import an event plan from JSON string
- * Supports single event JSON, event arrays, and full storage backup wraps
- */
 export function importEventFromJSON(jsonString: string): {
   success: boolean;
   event?: EventPlan;
@@ -180,25 +171,26 @@ export function importEventFromJSON(jsonString: string): {
 } {
   try {
     if (!jsonString || typeof jsonString !== 'string' || !jsonString.trim()) {
-      return { success: false, error: 'Empty JSON file. Please select a valid Gatherly AI backup file.' };
+      return {
+        success: false,
+        error: 'Empty JSON file. Please select a valid Gatherly AI backup file.',
+      };
     }
 
-    // Strip UTF-8 Byte Order Mark (BOM) if present from Windows/Notepad files
     const cleanJson = jsonString.replace(/^\uFEFF/, '').trim();
-    const parsed = JSON.parse(cleanJson);
+    const parsed: unknown = JSON.parse(cleanJson);
 
-    // Identify candidate event objects (support direct object, array, or { events: [...] } wrap)
     let candidateEvents: unknown[] = [];
     if (Array.isArray(parsed)) {
       candidateEvents = parsed;
     } else if (parsed && typeof parsed === 'object') {
-      const obj = parsed as Record<string, unknown>;
-      if (Array.isArray(obj.events)) {
-        candidateEvents = obj.events;
-      } else if (obj.event && typeof obj.event === 'object') {
-        candidateEvents = [obj.event];
-      } else if (obj.data && typeof obj.data === 'object') {
-        candidateEvents = [obj.data];
+      const record = parsed as Record<string, unknown>;
+      if (Array.isArray(record.events)) {
+        candidateEvents = record.events;
+      } else if (record.event && typeof record.event === 'object') {
+        candidateEvents = [record.event];
+      } else if (record.data && typeof record.data === 'object') {
+        candidateEvents = [record.data];
       } else {
         candidateEvents = [parsed];
       }
@@ -208,18 +200,19 @@ export function importEventFromJSON(jsonString: string): {
       return { success: false, error: 'No valid celebration event plans found in file.' };
     }
 
+    const existingEvents = getEventsSnapshot();
+    const usedIds = new Set(existingEvents.map((event) => event.id));
     const importedEvents: EventPlan[] = [];
+
     for (const rawItem of candidateEvents) {
       if (!rawItem || typeof rawItem !== 'object') continue;
 
-      // Provide fallback ID if missing
       const itemWithId = {
-        id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        id: createEventId(),
         ...(rawItem as Record<string, unknown>),
       };
 
       const result = fullEventPlanSchema.safeParse(itemWithId);
-
       if (!result.success) {
         if (candidateEvents.length === 1) {
           const issue = result.error.issues[0];
@@ -232,15 +225,12 @@ export function importEventFromJSON(jsonString: string): {
       }
 
       const imported = result.data as EventPlan;
-
-      // Ensure unique ID on import to avoid clobbering existing event if user wants a duplicate
-      const existing = getEventById(imported.id);
-      if (existing) {
-        imported.id = `evt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      if (usedIds.has(imported.id)) {
+        imported.id = createEventId();
         imported.title = `${imported.title} (Imported)`;
       }
 
-      saveEvent(imported);
+      usedIds.add(imported.id);
       importedEvents.push(imported);
     }
 
@@ -249,6 +239,11 @@ export function importEventFromJSON(jsonString: string): {
         success: false,
         error: 'Invalid plan backup file: None of the entries matched the required event format.',
       };
+    }
+
+    const saved = saveAllEvents([...importedEvents, ...existingEvents]);
+    if (!saved) {
+      return { success: false, error: 'Failed to store the imported plan in local storage.' };
     }
 
     return {

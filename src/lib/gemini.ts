@@ -1,26 +1,28 @@
-// Gatherly AI - Server-side Gemini AI Client
 import { AIPlanInput, AIPlanRequest, AIPlanResponse, aiPlanResponseSchema } from '@/types/schemas';
+import type { GoogleGenAI } from '@google/genai';
 
 const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 const FALLBACK_MODEL = 'gemini-3.1-flash-lite';
 
-/**
- * Returns an instance of GoogleGenAI using server-side environment variables
- */
-export async function getGeminiClient() {
+let cachedClient: GoogleGenAI | null = null;
+let cachedApiKey: string | null = null;
+
+export async function getGeminiClient(): Promise<GoogleGenAI> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not defined in environment variables');
   }
-  const { GoogleGenAI } = await import('@google/genai');
-  return new GoogleGenAI({ apiKey });
+
+  if (!cachedClient || cachedApiKey !== apiKey) {
+    const { GoogleGenAI } = await import('@google/genai');
+    cachedClient = new GoogleGenAI({ apiKey });
+    cachedApiKey = apiKey;
+  }
+
+  return cachedClient;
 }
 
-/**
- * Build a structured, safety-bounded prompt with untrusted data delimiters
- */
 export function buildPromptForEvent(request: AIPlanRequest | AIPlanInput): string {
-  // Normalize eventType for human reading in the prompt (e.g. "college_fest" -> "College Fest")
   const eventTypeLabel = request.eventType
     ? request.eventType.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
     : 'Celebration';
@@ -134,9 +136,6 @@ You MUST return ONLY a strictly valid JSON object conforming to the required sch
 `.trim();
 }
 
-/**
- * Safely parse JSON from model output, handling potential markdown code blocks or wrapper text
- */
 export function extractAndParseJson(text: string): unknown {
   let cleaned = text.trim();
   if (cleaned.startsWith('```')) {
@@ -150,9 +149,6 @@ export function extractAndParseJson(text: string): unknown {
   return JSON.parse(cleaned);
 }
 
-/**
- * Generate event plan via Gemini API with structured JSON output and Zod validation
- */
 export async function generateEventPlanWithGemini(
   request: AIPlanRequest
 ): Promise<AIPlanResponse> {
@@ -206,7 +202,6 @@ export async function generateEventPlanWithGemini(
     throw new Error('Gemini API returned invalid JSON');
   }
 
-  // Validate output against Zod schema
   const parsed = aiPlanResponseSchema.safeParse(rawJson);
   if (!parsed.success) {
     const errorDetails = parsed.error.issues

@@ -1,7 +1,5 @@
-// Gatherly AI - Event Readiness Score Engine
-// Transparent, deterministic, multi-factor scoring based on actual application state
-
 import {
+  BudgetSummary,
   EventPlan,
   ReadinessScoreBreakdown,
 } from '@/types/event';
@@ -9,61 +7,55 @@ import { calculateBudgetSummary } from './budget';
 import { isTaskOverdue } from './timeline';
 import { parseISO, isValid, differenceInCalendarDays } from 'date-fns';
 
-/**
- * Calculates a 0-100 Event Readiness Score with transparent breakdown and actionable alerts.
- * Weight distribution:
- * - Checklist completion: 40 points
- * - Vendor readiness: 25 points
- * - Budget health: 20 points
- * - Risk & Contingency preparedness: 15 points
- */
 export function calculateEventReadiness(
   event: EventPlan,
-  referenceDate: Date = new Date()
+  referenceDate: Date = new Date(),
+  budgetSummary?: BudgetSummary
 ): ReadinessScoreBreakdown {
   const alerts: ReadinessScoreBreakdown['criticalAlerts'] = [];
   const details: ReadinessScoreBreakdown['details'] = [];
 
-  // 1. Checklist Completion (Max 40 points)
   const totalTasks = event.tasks.length;
   let completedTasks = 0;
   let overdueTasks = 0;
   let highPriorityDueSoon = 0;
 
-  for (const t of event.tasks) {
-    if (t.isCompleted) {
+  for (const task of event.tasks) {
+    if (task.isCompleted) {
       completedTasks++;
-    } else {
-      if (isTaskOverdue(t, referenceDate)) {
-        overdueTasks++;
-      } else {
-        try {
-          const taskDate = parseISO(t.dueDate);
-          if (isValid(taskDate)) {
-            const diff = differenceInCalendarDays(taskDate, referenceDate);
-            if (diff >= 0 && diff <= 3 && t.priority === 'high') {
-              highPriorityDueSoon++;
-            }
-          }
-        } catch {
-          // ignore
+      continue;
+    }
+
+    if (isTaskOverdue(task, referenceDate)) {
+      overdueTasks++;
+      continue;
+    }
+
+    try {
+      const taskDate = parseISO(task.dueDate);
+      if (isValid(taskDate)) {
+        const diff = differenceInCalendarDays(taskDate, referenceDate);
+        if (diff >= 0 && diff <= 3 && task.priority === 'high') {
+          highPriorityDueSoon++;
         }
       }
+    } catch {
+      continue;
     }
   }
 
   const taskRatio = totalTasks > 0 ? completedTasks / totalTasks : 0;
-  const rawTaskScore = Math.round(taskRatio * 40);
-  // Penalty of 3 points per overdue task (up to max 12)
   const taskPenalty = Math.min(12, overdueTasks * 3);
-  const taskScore = Math.max(0, rawTaskScore - taskPenalty);
+  const taskScore = Math.max(0, Math.round(taskRatio * 40) - taskPenalty);
 
   details.push({
     label: 'Checklist Execution',
     score: taskScore,
     maxScore: 40,
     explanation: `${completedTasks} of ${totalTasks} tasks completed (${Math.round(taskRatio * 100)}%). ${
-      overdueTasks > 0 ? `${overdueTasks} overdue task(s) deducted ${taskPenalty} pts.` : 'No overdue tasks.'
+      overdueTasks > 0
+        ? `${overdueTasks} overdue task(s) deducted ${taskPenalty} pts.`
+        : 'No overdue tasks.'
     }`,
   });
 
@@ -87,31 +79,26 @@ export function calculateEventReadiness(
     });
   }
 
-  // 2. Vendor Readiness (Max 25 points)
   const totalVendors = event.vendors.length;
   let bookedVendors = 0;
   let shortlistedVendors = 0;
   let essentialUnbooked = 0;
 
-  for (const v of event.vendors) {
-    if (v.status === 'booked') {
+  for (const vendor of event.vendors) {
+    if (vendor.status === 'booked') {
       bookedVendors++;
-    } else if (v.status === 'shortlisted' || v.status === 'contacted') {
+    } else if (vendor.status === 'shortlisted' || vendor.status === 'contacted') {
       shortlistedVendors++;
-    } else {
-      if (['venue', 'catering', 'photography'].includes(v.category)) {
-        essentialUnbooked++;
-      }
+    } else if (['venue', 'catering', 'photography'].includes(vendor.category)) {
+      essentialUnbooked++;
     }
   }
 
-  let vendorScore = 0;
+  let vendorScore = 15;
   if (totalVendors > 0) {
     const bookedPoints = (bookedVendors / totalVendors) * 18;
     const shortlistedPoints = (shortlistedVendors / totalVendors) * 7;
     vendorScore = Math.min(25, Math.round(bookedPoints + shortlistedPoints));
-  } else {
-    vendorScore = 15; // neutral if no vendors required
   }
 
   details.push({
@@ -131,15 +118,12 @@ export function calculateEventReadiness(
     });
   }
 
-  // 3. Budget Health (Max 20 points)
-  const budgetSummary = calculateBudgetSummary(event.totalBudget, event.budgetItems);
+  const budget = budgetSummary ?? calculateBudgetSummary(event.totalBudget, event.budgetItems);
   let budgetScore = 20;
 
-  if (budgetSummary.isOverBudget) {
+  if (budget.isOverBudget) {
     const overPercent =
-      event.totalBudget > 0
-        ? (budgetSummary.overspendingAmount / event.totalBudget) * 100
-        : 50;
+      event.totalBudget > 0 ? (budget.overspendingAmount / event.totalBudget) * 100 : 50;
     if (overPercent > 25) {
       budgetScore = 4;
     } else if (overPercent > 10) {
@@ -152,46 +136,43 @@ export function calculateEventReadiness(
       id: 'alert-budget-exceeded',
       type: 'danger',
       title: 'Budget Allocation Exceeded',
-      message: `Total estimated spend exceeds target budget by ₹${budgetSummary.overspendingAmount.toLocaleString('en-IN')}. Review suggested savings.`,
+      message: `Total estimated spend exceeds target budget by ₹${budget.overspendingAmount.toLocaleString('en-IN')}. Review suggested savings.`,
       actionTab: 'budget',
     });
-  } else if (budgetSummary.utilizationPercentage === 0) {
-    budgetScore = 8; // no budget items allocated yet
-  } else if (budgetSummary.utilizationPercentage > 90) {
-    budgetScore = 17; // tight budget
-  } else {
-    budgetScore = 20; // healthy budget
+  } else if (budget.utilizationPercentage === 0) {
+    budgetScore = 8;
+  } else if (budget.utilizationPercentage > 90) {
+    budgetScore = 17;
   }
 
   details.push({
     label: 'Budget Discipline',
     score: budgetScore,
     maxScore: 20,
-    explanation: budgetSummary.isOverBudget
-      ? `Over budget by ₹${budgetSummary.overspendingAmount.toLocaleString('en-IN')} (${budgetSummary.utilizationPercentage}% utilized).`
-      : `Healthy financial plan (${budgetSummary.utilizationPercentage}% allocated, ₹${budgetSummary.remainingBudget.toLocaleString('en-IN')} buffer).`,
+    explanation: budget.isOverBudget
+      ? `Over budget by ₹${budget.overspendingAmount.toLocaleString('en-IN')} (${budget.utilizationPercentage}% utilized).`
+      : `Healthy financial plan (${budget.utilizationPercentage}% allocated, ₹${budget.remainingBudget.toLocaleString('en-IN')} buffer).`,
   });
 
-  // 4. Risk Mitigation & Environmental Readiness (Max 15 points)
   let riskScore = 15;
-  const hasRisksDocumented = event.risks && event.risks.length > 0;
-  if (!hasRisksDocumented) {
+  if (!event.risks || event.risks.length === 0) {
     riskScore -= 5;
   }
 
-  // Check outdoor contingency
   if (event.venueType === 'outdoor' || event.venueType === 'mixed') {
     const hasWeatherContingency =
-      event.risks.some((r) =>
-        r.risk.toLowerCase().includes('weather') ||
-        r.risk.toLowerCase().includes('rain') ||
-        r.mitigation.toLowerCase().includes('canopy') ||
-        r.mitigation.toLowerCase().includes('indoor')
+      event.risks.some(
+        (risk) =>
+          risk.risk.toLowerCase().includes('weather') ||
+          risk.risk.toLowerCase().includes('rain') ||
+          risk.mitigation.toLowerCase().includes('canopy') ||
+          risk.mitigation.toLowerCase().includes('indoor')
       ) ||
-      event.ideas.some((i) =>
-        i.title.toLowerCase().includes('rain') ||
-        i.title.toLowerCase().includes('weather') ||
-        i.title.toLowerCase().includes('tent')
+      event.ideas.some(
+        (idea) =>
+          idea.title.toLowerCase().includes('rain') ||
+          idea.title.toLowerCase().includes('weather') ||
+          idea.title.toLowerCase().includes('tent')
       );
 
     if (!hasWeatherContingency) {
@@ -200,35 +181,35 @@ export function calculateEventReadiness(
         id: 'alert-outdoor-weather',
         type: 'warning',
         title: 'Outdoor Venue Weather Backup Advised',
-        message: 'Your event is outdoor/mixed. We suggest adding a rain/wind contingency plan and shelter rental.',
+        message:
+          'Your event is outdoor/mixed. We suggest adding a rain/wind contingency plan and shelter rental.',
         actionTab: 'ideas',
       });
     }
   }
 
+  const safeRiskScore = Math.max(0, riskScore);
   details.push({
     label: 'Risk & Contingency Preparedness',
-    score: Math.max(0, riskScore),
+    score: safeRiskScore,
     maxScore: 15,
     explanation: `${event.risks.length} risk mitigations identified and analyzed for this celebration format.`,
   });
 
-  const overallScore = Math.min(
-    100,
-    Math.max(0, taskScore + vendorScore + budgetScore + Math.max(0, riskScore))
-  );
-
   return {
-    overallScore,
+    overallScore: Math.min(
+      100,
+      Math.max(0, taskScore + vendorScore + budgetScore + safeRiskScore)
+    ),
     taskScore,
     vendorScore,
     budgetScore,
-    riskScore: Math.max(0, riskScore),
+    riskScore: safeRiskScore,
     completedTasks,
     totalTasks,
     bookedVendors,
     totalVendors,
-    budgetUtilizedPercentage: budgetSummary.utilizationPercentage,
+    budgetUtilizedPercentage: budget.utilizationPercentage,
     details,
     criticalAlerts: alerts,
   };

@@ -1,6 +1,3 @@
-// Gatherly AI - Timeline & Checklist Engine
-// Converts relative integer offsets into deterministic dates using date-fns
-
 import { parseISO, subDays, addDays, format, isValid, isBefore, startOfDay } from 'date-fns';
 import { TaskItem, TaskCategory, TaskPriority } from '@/types/event';
 
@@ -39,16 +36,22 @@ export const TASK_PRIORITY_BADGES: Record<
   },
 };
 
-/**
- * Calculates deterministic ISO date string given eventDate (YYYY-MM-DD) and integer daysBeforeEvent
- */
+export type TaskIndex = ReadonlyMap<string, TaskItem>;
+
+export interface TaskDependencyCheck {
+  isBlocked: boolean;
+  missingDependencies: TaskItem[];
+}
+
+export function createTaskIndex(tasks: TaskItem[]): TaskIndex {
+  return new Map(tasks.map((task) => [task.id, task]));
+}
+
 export function calculateTaskDueDate(eventDateStr: string, daysBeforeEvent: number): string {
   try {
     const baseDate = parseISO(eventDateStr);
     if (!isValid(baseDate)) return eventDateStr;
 
-    // daysBeforeEvent > 0 means before event (subDays)
-    // daysBeforeEvent < 0 means after event (addDays)
     const targetDate =
       daysBeforeEvent >= 0
         ? subDays(baseDate, daysBeforeEvent)
@@ -60,70 +63,61 @@ export function calculateTaskDueDate(eventDateStr: string, daysBeforeEvent: numb
   }
 }
 
-/**
- * Recomputes task due dates when the overall event date changes,
- * preserving any user tasks that were explicitly marked with `isCustomDate: true`.
- */
 export function recalculateAllTaskDates(
   tasks: TaskItem[],
   newEventDateStr: string
 ): TaskItem[] {
   return tasks.map((task) => {
-    if (task.isCustomDate) {
-      return task;
-    }
-    const newDueDate = calculateTaskDueDate(newEventDateStr, task.daysBeforeEvent);
+    if (task.isCustomDate) return task;
+
     return {
       ...task,
-      dueDate: newDueDate,
+      dueDate: calculateTaskDueDate(newEventDateStr, task.daysBeforeEvent),
     };
   });
 }
 
-/**
- * Checks if a task is overdue (dueDate is before today and task is not completed)
- */
 export function isTaskOverdue(task: TaskItem, referenceDate: Date = new Date()): boolean {
   if (task.isCompleted) return false;
+
   try {
     const taskDate = parseISO(task.dueDate);
     if (!isValid(taskDate)) return false;
-    const today = startOfDay(referenceDate);
-    return isBefore(taskDate, today);
+    return isBefore(taskDate, startOfDay(referenceDate));
   } catch {
     return false;
   }
 }
 
-/**
- * Verifies whether all prerequisite tasks in the dependency chain are completed.
- * Returns { isBlocked: boolean, missingDependencies: TaskItem[] }
- */
-export function checkTaskDependencies(
+export function checkTaskDependenciesInIndex(
   task: TaskItem,
-  allTasks: TaskItem[]
-): { isBlocked: boolean; missingDependencies: TaskItem[] } {
+  taskIndex: TaskIndex
+): TaskDependencyCheck {
   if (!task.dependencies || task.dependencies.length === 0) {
     return { isBlocked: false, missingDependencies: [] };
   }
 
-  const missing: TaskItem[] = [];
-  for (const depId of task.dependencies) {
-    const found = allTasks.find((t) => t.id === depId);
-    if (found && !found.isCompleted) {
-      missing.push(found);
+  const missingDependencies: TaskItem[] = [];
+  for (const dependencyId of task.dependencies) {
+    const dependency = taskIndex.get(dependencyId);
+    if (dependency && !dependency.isCompleted) {
+      missingDependencies.push(dependency);
     }
   }
 
   return {
-    isBlocked: missing.length > 0,
-    missingDependencies: missing,
+    isBlocked: missingDependencies.length > 0,
+    missingDependencies,
   };
 }
 
-/**
- * Computes progress stats for tasks
- */
+export function checkTaskDependencies(
+  task: TaskItem,
+  allTasks: TaskItem[]
+): TaskDependencyCheck {
+  return checkTaskDependenciesInIndex(task, createTaskIndex(allTasks));
+}
+
 export function getTaskProgress(tasks: TaskItem[], referenceDate: Date = new Date()): {
   total: number;
   completed: number;
@@ -153,30 +147,30 @@ export function getTaskProgress(tasks: TaskItem[], referenceDate: Date = new Dat
   for (const task of tasks) {
     if (task.isCompleted) {
       completed++;
-    } else {
-      if (isTaskOverdue(task, referenceDate)) {
-        overdue++;
-      } else {
-        try {
-          const d = parseISO(task.dueDate);
-          if (isValid(d) && !isBefore(d, today) && isBefore(d, nextWeek)) {
-            upcomingThisWeek++;
-          }
-        } catch {
-          // ignore invalid date
-        }
+      continue;
+    }
+
+    if (isTaskOverdue(task, referenceDate)) {
+      overdue++;
+      continue;
+    }
+
+    try {
+      const dueDate = parseISO(task.dueDate);
+      if (isValid(dueDate) && !isBefore(dueDate, today) && isBefore(dueDate, nextWeek)) {
+        upcomingThisWeek++;
       }
+    } catch {
+      continue;
     }
   }
-
-  const percentage = Math.round((completed / total) * 100);
 
   return {
     total,
     completed,
     pending: total - completed,
     overdue,
-    percentage,
+    percentage: Math.round((completed / total) * 100),
     upcomingThisWeek,
   };
 }

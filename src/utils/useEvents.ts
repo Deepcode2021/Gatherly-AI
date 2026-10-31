@@ -1,11 +1,14 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { EventPlan } from '@/types/event';
-import { loadAllEvents, STORAGE_KEY_V1 } from '@/utils/storage';
+import { getEventsSnapshot } from '@/utils/storage';
+
+const SERVER_SNAPSHOT: EventPlan[] = [];
 
 function subscribe(callback: () => void) {
   if (typeof window === 'undefined') return () => {};
+
   window.addEventListener('storage', callback);
   window.addEventListener('gatherly-events-updated', callback);
   return () => {
@@ -14,34 +17,15 @@ function subscribe(callback: () => void) {
   };
 }
 
-let cachedEvents: EventPlan[] = [];
-let cachedRaw: string | null = null;
-
-function getSnapshot(): EventPlan[] {
-  if (typeof window === 'undefined') return [];
-  const raw = window.localStorage.getItem(STORAGE_KEY_V1);
-  if (raw !== cachedRaw) {
-    cachedRaw = raw;
-    cachedEvents = loadAllEvents();
-  }
-  return cachedEvents;
-}
-
 function getServerSnapshot(): EventPlan[] {
-  return [];
+  return SERVER_SNAPSHOT;
 }
 
-/**
- * React 19 recommended hook for reading and synchronizing with localStorage
- */
 export function useEvents(): EventPlan[] {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  return useSyncExternalStore(subscribe, getEventsSnapshot, getServerSnapshot);
 }
 
-/**
- * Hook to retrieve a single event plan reactively
- */
 export function useEvent(id: string): EventPlan | null {
   const events = useEvents();
-  return events.find((e) => e.id === id) || null;
+  return useMemo(() => events.find((event) => event.id === id) ?? null, [events, id]);
 }

@@ -1,6 +1,3 @@
-// Gatherly AI - Deterministic Budget Engine
-// Enforces pure integer INR arithmetic without floating-point drift
-
 import { BudgetItem, BudgetSummary, VendorCategory } from '@/types/event';
 
 export const CATEGORY_LABELS: Record<VendorCategory, string> = {
@@ -14,25 +11,10 @@ export const CATEGORY_LABELS: Record<VendorCategory, string> = {
   other: 'Gifts & Miscellaneous',
 };
 
-export const CATEGORY_COLORS: Record<VendorCategory, { bg: string; text: string; fill: string }> = {
-  venue: { bg: 'bg-emerald-100', text: 'text-emerald-900', fill: '#2D6A4F' },
-  catering: { bg: 'bg-amber-100', text: 'text-amber-900', fill: '#D97706' },
-  decoration: { bg: 'bg-rose-100', text: 'text-rose-900', fill: '#E11D48' },
-  photography: { bg: 'bg-indigo-100', text: 'text-indigo-900', fill: '#4F46E5' },
-  entertainment: { bg: 'bg-purple-100', text: 'text-purple-900', fill: '#9333EA' },
-  transport: { bg: 'bg-sky-100', text: 'text-sky-900', fill: '#0284C7' },
-  rentals: { bg: 'bg-stone-200', text: 'text-stone-900', fill: '#78716C' },
-  other: { bg: 'bg-orange-100', text: 'text-orange-900', fill: '#EA580C' },
-};
-
-/**
- * Calculates a complete deterministic budget summary from event budget items and target budget.
- */
 export function calculateBudgetSummary(
   targetBudget: number,
   items: BudgetItem[]
 ): BudgetSummary {
-  // Safe integer parsing
   const safeTarget = Math.max(0, Math.round(targetBudget || 0));
 
   let totalEstimated = 0;
@@ -41,53 +23,42 @@ export function calculateBudgetSummary(
   let contingencyAllocated = 0;
   let totalPaid = 0;
 
-  const categoryMap = new Map<
+  const categoryTotals = new Map<
     VendorCategory,
     { allocated: number; actual: number; count: number }
   >();
 
-  // Initialize all categories
-  (Object.keys(CATEGORY_LABELS) as VendorCategory[]).forEach((cat) => {
-    categoryMap.set(cat, { allocated: 0, actual: 0, count: 0 });
-  });
-
   for (const item of items) {
-    const est = Math.max(0, Math.round(item.estimatedCost || 0));
-    const act =
+    const estimated = Math.max(0, Math.round(item.estimatedCost || 0));
+    const actual =
       item.actualCost !== undefined && item.actualCost !== null
         ? Math.max(0, Math.round(item.actualCost))
         : null;
     const paid = Math.max(0, Math.round(item.paidAmount || 0));
 
-    totalEstimated += est;
+    totalEstimated += estimated;
     totalPaid += paid;
 
-    // Effective cost: if user specified actual cost, use it; otherwise fallback to estimate
-    const effectiveCost = act !== null ? act : est;
+    const effectiveCost = actual !== null ? actual : estimated;
     effectiveTotal += effectiveCost;
 
-    if (act !== null) {
-      totalActual += act;
+    if (actual !== null) {
+      totalActual += actual;
     }
 
-    if (
-      item.description.toLowerCase().includes('contingency') ||
-      item.category === 'other'
-    ) {
-      if (item.description.toLowerCase().includes('contingency')) {
-        contingencyAllocated += effectiveCost;
-      }
+    if (item.description.toLowerCase().includes('contingency')) {
+      contingencyAllocated += effectiveCost;
     }
 
-    const currentCat = categoryMap.get(item.category) || {
+    const categoryTotal = categoryTotals.get(item.category) ?? {
       allocated: 0,
       actual: 0,
       count: 0,
     };
-    categoryMap.set(item.category, {
-      allocated: currentCat.allocated + est,
-      actual: currentCat.actual + effectiveCost,
-      count: currentCat.count + 1,
+    categoryTotals.set(item.category, {
+      allocated: categoryTotal.allocated + estimated,
+      actual: categoryTotal.actual + effectiveCost,
+      count: categoryTotal.count + 1,
     });
   }
 
@@ -98,34 +69,22 @@ export function calculateBudgetSummary(
     safeTarget > 0 ? Math.min(999, Math.round((effectiveTotal / safeTarget) * 100)) : 0;
   const remainingToPay = Math.max(0, effectiveTotal - totalPaid);
 
-  // Category breakdown
-  const categoryBreakdown = Array.from(categoryMap.entries())
-    .map(([cat, data]) => {
-      const percentage =
-        effectiveTotal > 0
-          ? Math.round((data.actual / effectiveTotal) * 100)
-          : 0;
-      return {
-        category: cat,
-        label: CATEGORY_LABELS[cat],
-        allocated: data.allocated,
-        actual: data.actual,
-        percentage,
-        itemCount: data.count,
-      };
-    })
-    .filter((cat) => cat.itemCount > 0 || cat.actual > 0)
+  const categoryBreakdown = Array.from(categoryTotals.entries())
+    .map(([category, data]) => ({
+      category,
+      label: CATEGORY_LABELS[category],
+      allocated: data.allocated,
+      actual: data.actual,
+      percentage:
+        effectiveTotal > 0 ? Math.round((data.actual / effectiveTotal) * 100) : 0,
+      itemCount: data.count,
+    }))
     .sort((a, b) => b.actual - a.actual);
 
-  // Savings opportunities
-  const savingsOpportunities: {
-    category: string;
-    suggestion: string;
-    potentialSavings: number;
-  }[] = [];
+  const savingsOpportunities: BudgetSummary['savingsOpportunities'] = [];
 
   if (isOverBudget) {
-    const cateringEntry = categoryBreakdown.find((c) => c.category === 'catering');
+    const cateringEntry = categoryBreakdown.find((entry) => entry.category === 'catering');
     if (cateringEntry && cateringEntry.actual > safeTarget * 0.4) {
       savingsOpportunities.push({
         category: 'Food & Beverages',
@@ -135,7 +94,7 @@ export function calculateBudgetSummary(
       });
     }
 
-    const decorEntry = categoryBreakdown.find((c) => c.category === 'decoration');
+    const decorEntry = categoryBreakdown.find((entry) => entry.category === 'decoration');
     if (decorEntry && decorEntry.actual > safeTarget * 0.2) {
       savingsOpportunities.push({
         category: 'Decor',

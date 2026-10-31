@@ -28,6 +28,15 @@ Event planning often involves scattered notes, uncertain costs, vendor quotes, d
 
 Gatherly AI combines AI-assisted ideas with a structured workspace. Users can edit their plan, track spending and tasks, manage vendors, and export a backup rather than relying on a long chat response.
 
+<p align="center">
+  <img src="./docs/screenshots/landing.png" width="100%" />
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/demo.png" width="48%" />
+  <img src="./docs/screenshots/budget.png" width="48%" />
+</p>
+
 ## Features
 
 - **AI-assisted event plans:** Generate structured plans using Google's Gemini API when an API key is configured.
